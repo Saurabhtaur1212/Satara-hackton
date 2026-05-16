@@ -1,0 +1,154 @@
+# Navigate to backend directory
+cd C:\Users\saura\AgriSaathi\backend
+
+# Create virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy environment file
+copy .env.example .env
+
+# Start the backend server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Navigate to frontend directory
+cd C:\Users\saura\AgriSaathi\frontend
+
+# Install dependencies
+npm install
+
+# Start the frontend server
+npm start
+# Install and start MongoDB (if not installed)
+# Download from: https://www.mongodb.com/try/download/community
+
+# Install and start Redis (if not installed)
+# Download from: https://redis.io/download
+# Backend with auto-reload
+uvicorn main:app --reload
+
+# Frontend with hot reload
+npm start
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/agrisaathi
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./ai-models:/app/ai-models
+    networks:
+      - agrisaathi-network
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - agrisaathi-network
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_DATABASE=agrisaathi
+    volumes:
+      - mongodb_data:/data/db
+      - ./deployment/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - agrisaathi-network
+
+  # Redis for Caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agrisaathi-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deployment/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - agrisaathi-network
+
+  # Celery Worker for Background Tasks
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A main.celery worker --loglevel=info
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/agrisaathi
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./ai-models:/app/ai-models
+    networks:
+      - agrisaathi-network
+
+  # Celery Beat for Scheduled Tasks
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A main.celery beat --loglevel=info
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/agrisaathi
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - agrisaathi-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  agrisaathi-network:
+    driver: bridge
